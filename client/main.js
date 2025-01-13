@@ -1,6 +1,11 @@
 process.stdin.setEncoding("utf8");
-//websocketの入力をconsoleに出力する
+
+// ws://localhost:8080/{COMポート名}?baud_rate={ボーレート}&data_bits={データビット数}&stop_bits={ストップビット数}&parity={パリティ}
+// !!Linuxでは、COMポート名は/dev/以下にあるデバイス名を指定してください。!!
+// 例: ws://localhost:8080/ttyUSB0?baud_rate=115200&data_bits=8&stop_bits=1&parity=none
 var connection = new WebSocket('ws://localhost:8080/COM3?baud_rate=115200&data_bits=8&stop_bits=1&parity=none');
+
+
 
 // パラメータが指定されていない時のデフォルト値
 // baudRate := 9600

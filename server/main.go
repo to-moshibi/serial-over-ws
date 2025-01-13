@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
+
 	"github.com/gorilla/websocket"
 	"go.bug.st/serial"
 	"go.bug.st/serial/enumerator"
@@ -47,23 +49,13 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 		for _, port := range ports {
 			portList.Ports = append(portList.Ports, Port{
-				Name:         port.Name,
+				Name:         strings.TrimPrefix(port.Name, "/dev/"), 
 				IsUSB:        port.IsUSB,
 				VID:          port.VID,
 				PID:          port.PID,
 				SerialNumber: port.SerialNumber,
 				Product:      port.Product,
 			})
-
-			fmt.Printf("Found port: %s\n", port.Name)
-			if port.IsUSB {
-				fmt.Printf("   USB ID     %s:%s\n", port.VID, port.PID)
-				fmt.Printf("   USB serial %s\n", port.SerialNumber)
-
-				//OS依存なので、ラズパイで動くか注意
-				fmt.Printf("   USB Product %s\n", port.Product)
-
-			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		var buf bytes.Buffer
