@@ -1,3 +1,4 @@
+process.stdin.setEncoding("utf8");
 //websocketの入力をconsoleに出力する
 var connection = new WebSocket('ws://localhost:8080/COM3?baud_rate=115200&data_bits=8&stop_bits=1&parity=none');
 
@@ -28,3 +29,17 @@ connection.onmessage = function (e) {
 connection.onclose = function () {
     console.log('WebSocket connection closed');
 }
+
+process.stdin.setEncoding("utf8");
+
+
+var reader = require("readline").createInterface({
+  input: process.stdin
+});
+
+reader.on("line", (line) => {
+    connection.send(line);
+});
+reader.on("close", () => {
+  console.log("stdin closed"); 
+});
