@@ -148,36 +148,36 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Fatal(err)
 		}
+		go writer(conn, port)
+		reader(conn, port)
+	}
+}
 
-		buff := make([]byte, 100)
-		for {
-			n, err := port.Read(buff)
-			if err != nil {
-				log.Fatal(err)
-				break
-			}
-			if n == 0 {
-				fmt.Println("\nEOF")
-				break
-			}
-			fmt.Printf("%v", string(buff[:n]))
-			// msgtype, _, err := conn.NextReader()
-			// if err != nil {
-			// 	log.Fatal(err)
-			// 	conn.Close()
-			// 	port.Close()
-			// 	break
-			// }
-			// if msgtype != websocket.TextMessage {
-			// 	log.Fatal("Not a text message")
-			// }
-
-			// if _,err := io.Copy(port, r); err != nil {
-			// 	log.Fatal(err)
-			// }
-
-			conn.WriteMessage(websocket.TextMessage, buff[:n])
+func writer (conn *websocket.Conn, port serial.Port) {
+	buff := make([]byte, 100)
+	for {
+		n, err := port.Read(buff)
+		if err != nil {
+			log.Fatal(err)
+			break
 		}
+		if n == 0 {
+			fmt.Println("\nEOF")
+			break
+		}
+		fmt.Printf("%v", string(buff[:n]))
+		conn.WriteMessage(websocket.TextMessage, buff[:n])
+	}
+}
+
+func reader (conn *websocket.Conn, port serial.Port) {
+	for {
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			log.Fatal(err)
+			break
+		}
+		port.Write(message)
 	}
 }
 
