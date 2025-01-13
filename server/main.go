@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	// "io"
-	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -42,7 +40,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 		ports, err := enumerator.GetDetailedPortsList()
 		if err != nil {
-			log.Fatal(err)
+			fmt.Println(err)
 		}
 		if len(ports) == 0 {
 			fmt.Println("No serial ports found!")
@@ -72,7 +70,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		var buf bytes.Buffer
 		enc := json.NewEncoder(&buf)
 		if err := enc.Encode(portList); err != nil {
-			log.Fatal(err)
+			fmt.Println(err)
 		}
 		fmt.Fprint(w, buf.String())
 	} else {
@@ -86,7 +84,8 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		com := r.URL.Path[1:]
 		params, err := url.ParseQuery(r.URL.RawQuery)
 		if err != nil {
-			log.Fatal(err)
+			conn.WriteMessage(websocket.TextMessage, []byte("Error: Invalid Query \n"+err.Error()))
+			fmt.Println(err)
 		}
 
 		baudRate := 115200
@@ -100,13 +99,15 @@ func handler(w http.ResponseWriter, r *http.Request) {
 			if key == "baud_rate" {
 				baudRate, err = strconv.Atoi(value[0])
 				if err != nil {
-					log.Fatal("Error Parsing baudRate", err)
+					conn.WriteMessage(websocket.TextMessage, []byte("Error: Invalid baudRate \n"+err.Error()))
+					fmt.Println("Error Parsing baudRate", err)
 				}
 			}
 			if key == "data_bits" {
 				dataBits, err = strconv.Atoi(value[0])
 				if err != nil {
-					log.Fatal("Error Parsing data_bits", err)
+					conn.WriteMessage(websocket.TextMessage, []byte("Error: Invalid dataBits \n"+err.Error()))
+					fmt.Println("Error Parsing data_bits", err)
 				}
 			}
 			if key == "parity" {
@@ -121,7 +122,8 @@ func handler(w http.ResponseWriter, r *http.Request) {
 				} else if value[0] == "space" {
 					parity = serial.SpaceParity
 				} else {
-					log.Fatal("Error Parsing parity", err)
+					conn.WriteMessage(websocket.TextMessage, []byte("Error: Invalid parity \n"+value[0]))
+					fmt.Println("Error Parsing parity", err)
 				}
 			}
 			if key == "stop_bits" {
@@ -132,7 +134,8 @@ func handler(w http.ResponseWriter, r *http.Request) {
 				} else if value[0] == "2" {
 					stopBits = serial.TwoStopBits
 				} else {
-					log.Fatal("Error Parsing stop_bits", err)
+					conn.WriteMessage(websocket.TextMessage, []byte("Error: Invalid stopBits \n"+value[0]))
+					fmt.Println("Error Parsing stop_bits", err)
 				}
 			}
 		}
@@ -146,36 +149,42 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		}
 		port, err := serial.Open(com, mode)
 		if err != nil {
-			log.Fatal(err)
+			conn.WriteMessage(websocket.TextMessage, []byte("Error: Serial cannot open \n"+err.Error()))
+			fmt.Println(err)
 		}
 		go writer(conn, port)
 		reader(conn, port)
 	}
 }
 
-func writer (conn *websocket.Conn, port serial.Port) {
+func writer(conn *websocket.Conn, port serial.Port) {
 	buff := make([]byte, 100)
 	for {
 		n, err := port.Read(buff)
 		if err != nil {
+			conn.WriteMessage(websocket.TextMessage, []byte("Error: Serial cannot read \n"+err.Error()))
+			fmt.Println(err)
+		}
+		// if n == 0 {
+		// 	fmt.Println("\nEOF")
+		// 	break
+		// }
+		fmt.Printf("%v", string(buff[:n]))
+		if wserr := conn.WriteMessage(websocket.TextMessage, buff[:n]); wserr != nil {
 			fmt.Println(err)
 			break
 		}
-		if n == 0 {
-			fmt.Println("\nEOF")
-			break
-		}
-		fmt.Printf("%v", string(buff[:n]))
-		conn.WriteMessage(websocket.TextMessage, buff[:n])
 	}
 }
 
-func reader (conn *websocket.Conn, port serial.Port) {
+func reader(conn *websocket.Conn, port serial.Port) {
 	for {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
 			port.Close()
-			fmt.Println("Connection Closed")
+			conn.Close()
+			fmt.Println("connection closed")
+			fmt.Println(err)
 			break
 		}
 		port.Write(message)
