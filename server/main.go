@@ -88,7 +88,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 			fmt.Println(err)
 		}
 
-		baudRate := 115200
+		baudRate := 9600
 		dataBits := 8
 		parity := serial.NoParity
 		stopBits := serial.OneStopBit
