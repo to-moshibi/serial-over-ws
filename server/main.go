@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-
 	"github.com/gorilla/websocket"
 	"go.bug.st/serial"
 	"go.bug.st/serial/enumerator"
@@ -165,13 +164,8 @@ func writer(conn *websocket.Conn, port serial.Port) {
 			conn.WriteMessage(websocket.TextMessage, []byte("Error: Serial cannot read \n"+err.Error()))
 			fmt.Println(err)
 		}
-		// if n == 0 {
-		// 	fmt.Println("\nEOF")
-		// 	break
-		// }
-		fmt.Printf("%v", string(buff[:n]))
+		// fmt.Printf("%v", string(buff[:n]))
 		if wserr := conn.WriteMessage(websocket.TextMessage, buff[:n]); wserr != nil {
-			fmt.Println(err)
 			break
 		}
 	}
@@ -192,7 +186,7 @@ func reader(conn *websocket.Conn, port serial.Port) {
 }
 
 func main() {
-	fmt.Println("Hello, World!")
+	fmt.Println("Server started")
 	http.HandleFunc("/", handler)
 	http.ListenAndServe(":8080", nil)
 }

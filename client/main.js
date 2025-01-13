@@ -13,7 +13,7 @@ var connection = new WebSocket('ws://localhost:8080/COM3?baud_rate=115200&data_b
 
 //許可される値
 const data_bits =[5,6,7,8]
-const  stop_bits = [1,1.5,2]
+const stop_bits = [1,1.5,2]
 const parity = ['none','even','odd','mark','space']
 
 connection.onopen = function () {
