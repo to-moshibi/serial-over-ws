@@ -158,7 +158,7 @@ func writer (conn *websocket.Conn, port serial.Port) {
 	for {
 		n, err := port.Read(buff)
 		if err != nil {
-			log.Fatal(err)
+			fmt.Println(err)
 			break
 		}
 		if n == 0 {
@@ -174,7 +174,8 @@ func reader (conn *websocket.Conn, port serial.Port) {
 	for {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
-			log.Fatal(err)
+			port.Close()
+			fmt.Println("Connection Closed")
 			break
 		}
 		port.Write(message)
