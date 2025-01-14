@@ -145,7 +145,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 			Parity:   parity,
 			StopBits: stopBits,
 		}
-		port, err := serial.Open(com, mode)
+		port, err := serial.Open("/dev/"+com, mode)
 		if err != nil {
 			conn.WriteMessage(websocket.BinaryMessage, []byte("Error: Serial cannot open \n"+err.Error()))
 			fmt.Println(err)
