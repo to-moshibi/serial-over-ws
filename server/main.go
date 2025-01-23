@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+	// "io"
 	"net/http"
 	// "net/url"
 	// "strconv"
@@ -50,31 +50,10 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Headers", "*")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-
-	cancel := make(chan struct{})
-	toDevice := make(chan []byte)
-	toClient := make(chan []byte)
-	if r.URL.Path == "/serial/settings/" {
-		if r.Method == "PUT" {
-			message, err := io.ReadAll(r.Body)
-			if err != nil {
-				fmt.Println(err)
-				w.WriteHeader(http.StatusBadRequest)
-				w.Write([]byte("Error: Cannot read request body    " + err.Error()))
-				return
-			}
-			com, mode, err := nmw_unmarshal(message[:])
-			if err != nil {
-				fmt.Println(err)
-				w.WriteHeader(http.StatusBadRequest)
-				w.Write([]byte("Error: Cannnot unmarshal request body    " + err.Error()))
-				return
-			}
-			resCancel := make(chan struct{})
-			go serialConnect(w, *com, mode, toDevice, toClient, resCancel, cancel)
-			<-resCancel
-		}
-	} else if r.URL.Path == "/serial/ws/" {
+	if r.URL.Path == "/serial/" {
+		cancel := make(chan struct{})
+		toDevice := make(chan []byte)
+		toClient := make(chan []byte)
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			fmt.Println(err)
@@ -82,28 +61,23 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		}
 		defer conn.Close()
 		fmt.Println("Client connected")
-		go wsReader(conn, toDevice, cancel)
+		go wsReader(conn, toDevice, toClient, cancel)
 		go wsWriter(conn, toClient, cancel)
 		<-cancel
 		fmt.Println("Client disconnected")
 	}
 }
-func serialConnect(w http.ResponseWriter, com string, mode *serial.Mode, toDevice chan []byte, toClient chan []byte, resCancel chan struct{}, cancel chan struct{}) {
+func serialConnect(conn *websocket.Conn, com string, mode *serial.Mode, toDevice chan []byte, toClient chan []byte,serialCancel chan bool, cancel chan struct{}) {
 	port, err := serial.Open(com, mode)
 	if err != nil {
 		//internal server error
 		fmt.Println(err)
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("Error: Cannot open serial port    " + err.Error()))
-		close(resCancel)
+		conn.WriteMessage(websocket.TextMessage, []byte("Error: Serial cannot open     "+err.Error()))
 		return
 	}
 	defer port.Close()
 	fmt.Println("Serial port opened")
-	//200 OK
-	w.WriteHeader(http.StatusOK)
-	close(resCancel)
-	serialCancel := make(chan struct{})
+	conn.WriteMessage(websocket.TextMessage, []byte("Serial port opened"))
 	go serialReader(port, toClient, serialCancel, cancel)
 	go serialWriter(port, toDevice, serialCancel, cancel)
 	for {
@@ -120,23 +94,35 @@ func serialConnect(w http.ResponseWriter, com string, mode *serial.Mode, toDevic
 
 }
 
-func wsReader(conn *websocket.Conn, toDevice chan []byte, cancel chan struct{}) {
+func wsReader(conn *websocket.Conn, toDevice chan []byte, toClient chan []byte, cancel chan struct{}) {
+	serialCancel := make(chan bool)
 	for {
-		_, message, err := conn.ReadMessage()
-		if err != nil {
-			fmt.Println(err)
-			close(cancel)
-			return
-		}
-		fmt.Println("ws message received")
-		fmt.Println(string(message))
 		select {
-		case toDevice <- message:
 		case <-cancel:
 			fmt.Println("cancel wsReader")
 			return
 		default:
-			continue
+			_, message, err := conn.ReadMessage()
+			if err != nil {
+				fmt.Println(err)
+				close(cancel)
+				return
+			}
+			if json.Valid(message) {
+				com, mode, err := nmw_unmarshal(message)
+				if err != nil {
+					conn.WriteMessage(websocket.TextMessage, []byte("Error: Invalid JSON     "+err.Error()))
+					continue
+				}
+				select {
+				case serialCancel <- true:
+					fmt.Println("serialCancel")
+				default:
+				}
+				go serialConnect(conn, *com, mode, toDevice, toClient, serialCancel, cancel)
+			} else {
+				toDevice <- message
+			}
 		}
 	}
 }
@@ -149,7 +135,7 @@ func wsWriter(conn *websocket.Conn, toClient chan []byte, cancel chan struct{}) 
 			return
 		case message := <-toClient:
 			fmt.Println(string(message))
-			if err := conn.WriteMessage(websocket.BinaryMessage, message); err != nil {
+			if err := conn.WriteMessage(websocket.TextMessage, message); err != nil {
 				fmt.Println(err)
 				close(cancel)
 				return
@@ -191,7 +177,7 @@ func nmw_unmarshal(message []byte) (*string, *serial.Mode, error) {
 	return msg.Com, result, nil
 }
 
-func serialReader(port serial.Port, toClient chan []byte, serialCancel chan struct{}, cancel chan struct{}) {
+func serialReader(port serial.Port, toClient chan []byte, serialCancel chan bool, cancel chan struct{}) {
 	buff := make([]byte, 100)
 	for {
 		select {
@@ -215,8 +201,11 @@ func serialReader(port serial.Port, toClient chan []byte, serialCancel chan stru
 	}
 }
 
-func serialWriter(port serial.Port, toDevice chan []byte, serialCancel chan struct{}, cancel chan struct{}) {
+func serialWriter(port serial.Port, toDevice chan []byte, serialCancel chan bool, cancel chan struct{}) {
 	for {
+		fmt.Println("serialWriter")
+		msg := <-toDevice
+		fmt.Println("serial message received", string(msg))
 		select {
 		case <-cancel:
 			fmt.Println("cancel serialWriter")
@@ -229,8 +218,6 @@ func serialWriter(port serial.Port, toDevice chan []byte, serialCancel chan stru
 			fmt.Println("serial message received")
 			fmt.Println(string(message))
 			port.Write(message)
-		default:
-			continue
 		}
 	}
 }
