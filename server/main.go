@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
-
 	// "net/url"
 	// "strconv"
 	// "strings"
@@ -56,22 +56,23 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	toClient := make(chan []byte)
 	if r.URL.Path == "/serial/settings/" {
 		if r.Method == "PUT" {
-			message := make([]byte, 100)
-			n, err := r.Body.Read(message)
+			message, err := io.ReadAll(r.Body)
 			if err != nil {
 				fmt.Println(err)
 				w.WriteHeader(http.StatusBadRequest)
-				w.Write([]byte("Error: Cannot read request body\n" + err.Error()))
+				w.Write([]byte("Error: Cannot read request body    " + err.Error()))
 				return
 			}
-			com, mode, err := nmw_unmarshal(message[:n])
+			com, mode, err := nmw_unmarshal(message[:])
 			if err != nil {
 				fmt.Println(err)
 				w.WriteHeader(http.StatusBadRequest)
-				w.Write([]byte("Error: Cannnot unmarshal request body\n" + err.Error()))
+				w.Write([]byte("Error: Cannnot unmarshal request body    " + err.Error()))
 				return
 			}
-			go serialConnect(w, *com, mode, toDevice, toClient, cancel)
+			resCancel := make(chan struct{})
+			go serialConnect(w, *com, mode, toDevice, toClient, resCancel, cancel)
+			<-resCancel
 		}
 	} else if r.URL.Path == "/serial/ws/" {
 		conn, err := upgrader.Upgrade(w, r, nil)
@@ -87,15 +88,21 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		fmt.Println("Client disconnected")
 	}
 }
-func serialConnect(w http.ResponseWriter, com string, mode *serial.Mode, toDevice chan []byte, toClient chan []byte, cancel chan struct{}) {
+func serialConnect(w http.ResponseWriter, com string, mode *serial.Mode, toDevice chan []byte, toClient chan []byte, resCancel chan struct{}, cancel chan struct{}) {
 	port, err := serial.Open(com, mode)
 	if err != nil {
+		//internal server error
+		fmt.Println(err)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("Error: Cannot open serial port\n" + err.Error()))
+		w.Write([]byte("Error: Cannot open serial port    " + err.Error()))
+		close(resCancel)
 		return
 	}
 	defer port.Close()
 	fmt.Println("Serial port opened")
+	//200 OK
+	w.WriteHeader(http.StatusOK)
+	close(resCancel)
 	serialCancel := make(chan struct{})
 	go serialReader(port, toClient, serialCancel, cancel)
 	go serialWriter(port, toDevice, serialCancel, cancel)
@@ -115,19 +122,21 @@ func serialConnect(w http.ResponseWriter, com string, mode *serial.Mode, toDevic
 
 func wsReader(conn *websocket.Conn, toDevice chan []byte, cancel chan struct{}) {
 	for {
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			fmt.Println(err)
+			close(cancel)
+			return
+		}
+		fmt.Println("ws message received")
+		fmt.Println(string(message))
 		select {
+		case toDevice <- message:
 		case <-cancel:
 			fmt.Println("cancel wsReader")
 			return
 		default:
-			_, message, err := conn.ReadMessage()
-			if err != nil {
-				fmt.Println(err)
-				close(cancel)
-				return
-			}
-			toDevice <- message
-			fmt.Println(string(message))
+			continue
 		}
 	}
 }
@@ -139,11 +148,14 @@ func wsWriter(conn *websocket.Conn, toClient chan []byte, cancel chan struct{}) 
 			fmt.Println("cancel wsWriter")
 			return
 		case message := <-toClient:
+			fmt.Println(string(message))
 			if err := conn.WriteMessage(websocket.BinaryMessage, message); err != nil {
 				fmt.Println(err)
 				close(cancel)
 				return
 			}
+		default:
+			continue
 		}
 	}
 }
@@ -193,7 +205,7 @@ func serialReader(port serial.Port, toClient chan []byte, serialCancel chan stru
 		default:
 			n, err := port.Read(buff)
 			if err != nil {
-				toClient <- []byte("Error: Serial cannot read \n" + err.Error())
+				toClient <- []byte("Error: Serial cannot read     " + err.Error())
 				fmt.Println(err)
 				close(serialCancel)
 				return
@@ -214,7 +226,11 @@ func serialWriter(port serial.Port, toDevice chan []byte, serialCancel chan stru
 			fmt.Println("cancel serialWriter by serialCancel")
 			return
 		case message := <-toDevice:
+			fmt.Println("serial message received")
+			fmt.Println(string(message))
 			port.Write(message)
+		default:
+			continue
 		}
 	}
 }
